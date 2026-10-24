@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#075E54">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Meu Assessor">
+    <title>Meu Assessor - Escritório IA</title>
+    
+    <!-- Dynamic PWA Manifest for Desktop & Mobile Installation -->
+    <link rel="manifest" id="pwa-manifest" href="">
+    <script>
+        const manifestData = {
+            name: "Meu Assessor - Escritório IA",
+            short_name: "Meu Assessor",
+            start_url: ".",
+            display: "standalone",
+            background_color: "#0F172A",
+            theme_color: "#075E54",
+            icons: [{
+                src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23075E54'/><text x='50%' y='58%' dominant-baseline='middle' text-anchor='middle' font-size='52' font-family='Arial' font-weight='bold' fill='white'>MA</text></svg>",
+                sizes: "192x192",
+                type: "image/svg+xml"
+            }]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
+        document.getElementById('pwa-manifest').setAttribute('href', URL.createObjectURL(manifestBlob));
+
+        // Injecting a Service Worker to force PWA Installation Prompt (Desktop/APK)
+        const swCode = `
+            self.addEventListener('install', (e) => self.skipWaiting());
+            self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+            self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request).catch(() => new Response('Offline'))));
+        `;
+        const swBlob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(swBlob);
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register(swUrl).then(() => console.log('ServiceWorker registrado.'));
+            });
+        }
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#0F172A', brand: '#10B981', whatsapp: '#075E54', wabulle: '#DCF8C6' }
+                }
+            }
+        }
+    </script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+        .wa-bg { background-color: #EFEAE2; background-image: radial-gradient(#CBD5E1 1px, transparent 1px); background-size: 20px 20px; }
+        .typing-dot { animation: typing 1.4s infinite ease-in-out both; }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const AGENTS = {
+            Theo: { name: 'Theo', role: 'Diretor de Operações', color: 'bg-indigo-600', text: 'text-indigo-600' },
+            Martin: { name: 'Martin', role: 'Gerente Financeiro', color: 'bg-emerald-600', text: 'text-emerald-600' },
+            Sofi: { name: 'Sofi', role: 'Secretária Executiva', color: 'bg-rose-600', text: 'text-rose-600' },
+            Luna: { name: 'Luna', role: 'Docs e OCR', color: 'bg-amber-500', text: 'text-amber-600' },
+            Italo: { name: 'Ítalo', role: 'Cobranças', color: 'bg-cyan-600', text: 'text-cyan-600' },
+            Rita: { name: 'Rita', role: 'Preferências', color: 'bg-purple-600', text: 'text-purple-600' }
+        };
+
+        const App = () => {
+            const [userName, setUserName] = useState('Alexandre');
+            const [dashTab, setDashTab] = useState('cloud_install'); // Defaulting to the requested tab
+            const [input, setInput] = useState('');
+            const [expenses, setExpenses] = useState(4538.50);
+            const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('pt-BR', { hour12: false }));
+            const [workspaceCode, setWorkspaceCode] = useState('escritorio-principal');
+            const [installPrompt, setInstallPrompt] = useState(null);
+            
+            const [messages, setMessages] = useState([
+                { 
+                    id: 1, sender: 'ai', agent: 'Theo', 
+                    text: 'Recebido, Júlia! Aqui no escritório você pode falar como falaria com uma pessoa:\n• **Martin:** "Gastei 45 no Uber", "Comprei TV em 10x de 150" ou "O valor é 92"\n• **Sofi:** "Marca dentista terça às 10h" ou "Me manda a ata da reunião"\n• **Ítalo / Luna:** Envie um boleto PDF, foto de nota fiscal ou peça um link de cobrança.', 
+                    timestamp: '00:55' 
+                },
+                { id: 2, sender: 'user', text: 'entendi]', timestamp: '00:55' },
+                { 
+                    id: 3, sender: 'ai', agent: 'Theo', 
+                    text: 'Recebido, Júlia! Aqui no escritório você pode falar como falaria com uma pessoa:\n• **Martin:** "Gastei 45 no Uber", "Comprei TV em 10x de 150" ou "O valor é 92"\n• **Sofi:** "Marca dentista terça às 10h" ou "Me manda a ata da reunião"\n• **Ítalo / Luna:** Envie um boleto PDF, foto de nota fiscal ou peça um link de cobrança.', 
+                    timestamp: '00:56' 
+                },
+                { id: 4, sender: 'user', text: 'meu nome é Alexandre mas pode me chamar de Alê', timestamp: '00:56' },
+                { id: 5, sender: 'user', text: 'Comi lanche hoje a noite gastei 62 reais', timestamp: '20:47' },
+                { 
+                    id: 6, sender: 'ai', agent: 'Martin', text: 'Anotado, Alê! Já registrei esse lanche de R$ 62,00 aqui na categoria Alimentação. 🍔 💰', 
+                    isReceipt: true, receiptData: { value: '62,00', desc: 'Lanche', cat: 'Alimentação', status: 'Pago' }, timestamp: '20:47' 
+                },
+                { id: 7, sender: 'user', text: 'Consegue me lembrar de pagar todo mês a luz no dia 10?', timestamp: '20:49' },
+                { 
+                    id: 8, sender: 'ai', agent: 'Martin', text: 'Com certeza, Alê! Já agendei aqui para te lembrar de pagar a conta de luz todo dia 10. Vou deixar registrado na categoria Moradia, tá bom? 💡 🏠', 
+                    timestamp: '20:49' 
+                }
+            ]);
+
+            const endRef = useRef(null);
+            
+            useEffect(() => { 
+                endRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+                const timer = setInterval(() => {
+                    setCurrentTime(new Date().toLocaleTimeString('pt-BR', { hour12: false }));
+                }, 1000);
+
+                const handleBeforeInstallPrompt = (e) => {
+                    e.preventDefault();
+                    setInstallPrompt(e);
+                };
+                window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+                return () => {
+                    clearInterval(timer);
+                    window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+                };
+            }, [messages]);
+
+            const handleSend = (e) => {
+                e.preventDefault();
+                if (!input.trim()) return;
+                
+                const userMsg = { id: Date.now(), sender: 'user', text: input, timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+                setMessages(prev => [...prev, userMsg]);
+                const rawInput = input.toLowerCase();
+                setInput('');
+
+                setTimeout(() => {
+                    let aiResponse = { id: Date.now() + 1, sender: 'ai', timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+
+                    if (rawInput.match(/\d+/) && (rawInput.includes('gastei') || rawInput.includes('comprei'))) {
+                        const match = rawInput.match(/\d+(,\d+)?/);
+                        const val = match ? parseFloat(match[0].replace(',', '.')) : 0;
+                        setExpenses(prev => prev + val);
+                        aiResponse = { ...aiResponse, agent: 'Martin', text: `Prontinho! Já registrei esse gasto aqui para você! ✅✨`, isReceipt: true, receiptData: { value: val.toFixed(2).replace('.', ','), desc: 'Despesa nova', cat: 'Alimentação', status: 'Pago' } };
+                    }
+                    else if (rawInput.includes('nome') || rawInput.includes('chama')) {
+                         aiResponse = { ...aiResponse, agent: 'Rita', text: `Combinado! Atualizei suas preferências. Daqui em diante vou te chamar de Alê.` };
+                         setUserName('Alê');
+                    }
+                    else {
+                        aiResponse = { ...aiResponse, agent: 'Theo', text: `Anotado. Encaminhei sua solicitação para a mesa responsável organizar.` };
+                    }
+
+                    setMessages(prev => [...prev, aiResponse]);
+                }, 1000);
+            };
+
+            const handleSimulateMedia = (type) => {
+                const bId = Date.now();
+                setMessages(prev => [...prev, {
+                    id: bId, sender: 'user', text: type === 'audio' ? '🎤 [Áudio de 5s]' : '📄 [PDF Anexado]', timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                }]);
+                setTimeout(() => {
+                    setMessages(prev => [...prev, {
+                        id: bId + 1, sender: 'ai', agent: 'Luna', text: `Recebi o ${type}. Já extraí os dados e mandei para a mesa correspondente analisar.`, timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                    }]);
+                }, 1000);
+            };
+
+            const handleDownload = () => {
+                const element = document.createElement("a");
+                const file = new Blob(['<!DOCTYPE html>\n' + document.documentElement.outerHTML], {type: 'text/html'});
+                element.href = URL.createObjectURL(file);
+                element.download = "meu-assessor.html";
+                document.body.appendChild(element);
+                element.click();
+                document.body.removeChild(element);
+            };
+
+            return (
+                <div className="flex h-screen bg-slate-50 flex-col lg:flex-row overflow-hidden">
+                    
+                    {/* Painel Esquerdo: Chat WhatsApp */}
+                    <div className="flex flex-col w-full lg:w-[420px] xl:w-[460px] border-r border-slate-300 h-full flex-shrink-0 bg-white">
+                        <div className="bg-[#075E54] text-white px-4 py-3 flex items-center justify-between shadow-md z-10">
+                            <div className="flex items-center space-x-3">
+                                <div className="flex -space-x-2">
+                                    {Object.values(AGENTS).slice(0, 4).map(ag => (
+                                        <div key={ag.name} className={`w-8 h-8 rounded-full border-2 border-[#075E54] ${ag.color} flex items-center justify-center text-xs font-bold shadow`}>{ag.name[0]}</div>
+                                    ))}
+                                </div>
+                                <div>
+                                    <div className="flex items-center space-x-1.5">
+                                        <h2 className="font-bold text-sm leading-tight">Meu Assessor · Escritório IA</h2>
+                                    </div>
+                                    <p className="text-[11px] text-emerald-100 truncate max-w-[230px]">Theo, Martin, Sofi, Luna, Ítalo, Rita</p>
+                                </div>
+                            </div>
+                            <div className="text-right flex flex-col items-end space-y-1">
+                                <button onClick={() => setDashTab('cloud_install')} className="inline-flex items-center space-x-1 bg-black/25 hover:bg-black/40 text-[10px] px-2 py-0.5 rounded-full text-emerald-100 transition cursor-pointer">
+                                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full mr-1 animate-pulse"></span> Nuvem Ativa
+                                </button>
+                                <div className="text-[10px] text-emerald-200/90 font-mono">Sala: {workspaceCode}</div>
+                            </div>
+                        </div>
+
+                        {/* Barra de Ações */}
+                        <div className="bg-[#0F172A] px-3 py-2 flex items-center justify-between text-xs border-b border-slate-700">
+                            <span className="text-[11px] text-slate-400 font-medium">Anexos WhatsApp:</span>
+                            <div className="flex space-x-1.5">
+                                <button onClick={() => handleSimulateMedia('audio')} className="flex items-center space-x-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/30 px-2 py-1 rounded-md transition text-[11px]">
+                                    🎙️ <span>Áudio</span>
+                                </button>
+                                <button onClick={() => handleSimulateMedia('pdf')} className="flex items-center space-x-1 bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/30 px-2 py-1 rounded-md transition text-[11px]">
+                                    📄 <span>PDF Boleto</span>
+                                </button>
+                                <button onClick={() => handleSimulateMedia('foto')} className="flex items-center space-x-1 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-400/40 px-2 py-1 rounded-md transition text-[11px] font-semibold">
+                                    📎 <span>Foto OCR (IA)</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Área de Mensagens */}
+                        <div className="flex-1 overflow-y-auto p-3.5 space-y-3 wa-bg custom-scrollbar">
+                            <div className="bg-amber-50/95 border border-amber-200/80 text-amber-900 rounded-xl p-2.5 text-[11px] text-center shadow-sm">
+                                🔒 Mensagens processadas pelos 6 assessores IA. Cada resposta vem assinada pelo especialista responsável.
+                            </div>
+
+                            {messages.map(msg => (
+                                <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                                    <div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 shadow-sm text-xs leading-relaxed relative ${msg.sender === 'user' ? 'bg-[#DCF8C6] text-slate-800 rounded-tr-none border border-emerald-200' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'}`}>
+                                        {msg.sender === 'ai' && (
+                                            <div className="flex items-center justify-between mb-1 pb-1 border-b border-slate-100">
+                                                <span className={`font-bold text-[11px] ${AGENTS[msg.agent]?.text}`}>{AGENTS[msg.agent]?.name}</span>
+                                                <span className="text-[10px] text-slate-400 ml-2">{AGENTS[msg.agent]?.role}</span>
+                                            </div>
+                                        )}
+                                        <div className="whitespace-pre-line">{msg.text}</div>
+                                        
+                                        {msg.isReceipt && (
+                                            <div className="mt-2.5 bg-slate-50 rounded-xl p-3 border border-slate-200 text-slate-800">
+                                                <div className="flex justify-between items-center mb-1.5">
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">RECIBO · 24H</span>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">{msg.receiptData.status}</span>
+                                                </div>
+                                                <div className="flex items-baseline space-x-2">
+                                                    <span className="text-base font-extrabold text-slate-900">R$ {msg.receiptData.value}</span>
+                                                </div>
+                                                <div className="text-[11px] text-slate-600 mt-1 space-y-0.5">
+                                                    <div>• <strong>Descrição:</strong> {msg.receiptData.desc}</div>
+                                                    <div>• <strong>Categoria:</strong> {msg.receiptData.cat}</div>
+                                                </div>
+                                                <div className="flex space-x-2 border-t border-slate-200 pt-2 mt-2.5">
+                                                    <button onClick={() => setInput('o valor é 92')} className="flex-1 flex justify-center items-center py-1.5 text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Editar
+                                                    </button>
+                                                    <button className="flex-1 flex justify-center items-center py-1.5 text-[11px] font-semibold text-rose-600 bg-white border border-rose-200 rounded-lg hover:bg-rose-50 transition">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg> Desfazer
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <span className="block text-[10px] text-slate-400 text-right mt-1">{msg.timestamp}</span>
+                                    </div>
+                                </div>
+                            ))}
+                            <div ref={endRef} />
+                        </div>
+
+                        {/* Formulário de Input */}
+                        <form onSubmit={handleSend} className="bg-slate-200 p-2.5 flex items-center space-x-2">
+                            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Fale do seu jeito (ex: gastei 45 no Uber)..." className="flex-1 py-2.5 px-4 rounded-full bg-white text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand shadow-sm" />
+                            <button type="submit" className="bg-[#075E54] hover:bg-emerald-800 text-white p-2.5 rounded-full shadow transition flex-shrink-0">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                            </button>
+                        </form>
+                    </div>
+
+                    {/* Painel Direito: Dashboard Web */}
+                    <div className="hidden lg:flex flex-col flex-1 h-full overflow-hidden bg-slate-50">
+                        <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                    <h1 className="text-xl font-extrabold text-slate-900">Painel do Escritório</h1>
+                                    <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                                        🛡️ <span>Open Finance BACEN · 114+ Bancos</span>
+                                    </span>
+                                    <button onClick={() => setDashTab('cloud_install')} className="text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 border transition bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100">
+                                        ☁️ <span>Sincronizado na Nuvem ({currentTime})</span>
+                                    </button>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">Conta Compartilhada Ativa ({userName} & Sócia) · Sala: <strong className="font-mono text-slate-700">{workspaceCode}</strong></p>
+                            </div>
+                            
+                            <div className="flex bg-slate-100 p-1 rounded-xl space-x-1 overflow-x-auto">
+                                <button onClick={() => setDashTab('finances')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${dashTab === 'finances' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>💰 Finanças & Bancos</button>
+                                <button onClick={() => setDashTab('agenda')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${dashTab === 'agenda' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>📅 Agenda & Atas</button>
+                                <button onClick={() => setDashTab('link')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${dashTab === 'link' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>🔗 Link Agenda</button>
+                                <button onClick={() => setDashTab('drive')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${dashTab === 'drive' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>📁 Drive & Equipe</button>
+                                <button onClick={() => setDashTab('cloud_install')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${dashTab === 'cloud_install' ? 'bg-[#10B981] text-white shadow-sm' : 'text-emerald-700 hover:bg-emerald-100'}`}>☁️ Nuvem & Instalar</button>
+                            </div>
+                        </header>
+                        
+                        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-slate-50">
+                            
+                            {/* Tela EXATA do Print da Nuvem (Background Escuro) */}
+                            {dashTab === 'cloud_install' && (
+                                <div className="bg-[#0f172a] rounded-xl p-8 max-w-4xl mx-auto shadow-lg text-white font-sans border border-slate-800">
+                                    <h2 className="text-xl font-bold mb-8 tracking-tight">Configuração de Nuvem & Instalação (Notebook & Celular)</h2>
+
+                                    <div className="flex flex-wrap gap-4 mb-8">
+                                        <button onClick={handleDownload} className="border border-slate-500 text-sm font-medium hover:bg-slate-800 px-5 py-2.5 rounded-lg transition text-slate-200 flex items-center">
+                                            Baixar Arquivo .html
+                                        </button>
+                                        
+                                        {installPrompt && (
+                                            <button onClick={() => installPrompt.prompt()} className="bg-emerald-500 hover:bg-emerald-400 text-sm font-medium px-5 py-2.5 rounded-lg transition text-white flex items-center shadow-md">
+                                                📱 Instalar Aplicativo (PWA)
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="bg-[#1e293b] p-6 rounded-xl border border-slate-700/50">
+                                        <label className="block text-emerald-400 text-xs font-bold mb-3">
+                                            Código do Escritório (Sincroniza Notebook + Celular)
+                                        </label>
+                                        <div className="flex space-x-3">
+                                            <input 
+                                                type="text" 
+                                                value={workspaceCode}
+                                                onChange={(e) => setWorkspaceCode(e.target.value)}
+                                                className="flex-1 bg-[#0f172a] border border-slate-600 rounded-lg px-4 py-2.5 text-slate-300 font-mono text-sm focus:outline-none focus:border-emerald-500" 
+                                            />
+                                            <button className="bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-sm transition shadow">
+                                                Conectar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Tela Simples de Finanças para navegação funcionar */}
+                            {dashTab === 'finances' && (
+                                <div className="max-w-4xl mx-auto space-y-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                            <p className="text-xs text-slate-500 font-semibold">Saldo Consolidado</p>
+                                            <h3 className="text-2xl font-extrabold text-slate-900 mt-1">R$ 18.261,50</h3>
+                                            <p className="text-[10px] text-emerald-600 mt-2 font-medium">3 bancos via Open Finance</p>
+                                        </div>
+                                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                            <p className="text-xs text-slate-500 font-semibold">Receitas (Mês)</p>
+                                            <h3 className="text-2xl font-extrabold text-emerald-600 mt-1">R$ 22.800,00</h3>
+                                            <p className="text-[10px] text-slate-500 mt-2">Meta mensal batida em 92%</p>
+                                        </div>
+                                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                                            <p className="text-xs text-slate-500 font-semibold">Despesas (Mês)</p>
+                                            <h3 className="text-2xl font-extrabold text-rose-600 mt-1">R$ {expenses.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+                                            <p className="text-[10px] text-slate-500 mt-2">Gerido por Martin</p>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 bg-rose-500"></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                        <h3 className="text-sm font-bold text-slate-900 mb-1">📱 Conexão Open Finance Oficial (Banco Central)</h3>
+                                        <p className="text-xs text-slate-500 mb-4">Reúne saldos e faturas de mais de 114 instituições em uma única visão com sua autorização.</p>
+                                        <div className="flex space-x-4">
+                                            <div className="flex-1 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <div className="w-10 h-10 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold">NU</div>
+                                                    <div>
+                                                        <div className="font-bold text-sm">Nubank</div>
+                                                        <div className="text-[10px] text-slate-400">Conta + Cartão · Sincronizado há 2 min</div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-bold text-sm">R$ 6.420,50</div>
+                                                    <div className="text-[10px] text-rose-500 font-medium">Fatura: R$ 940,20</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <div className="w-10 h-10 rounded-lg bg-orange-500 text-white flex items-center justify-center font-bold">IT</div>
+                                                    <div>
+                                                        <div className="font-bold text-sm">Itaú</div>
+                                                        <div className="text-[10px] text-slate-400">Conta + Cartão · Sincronizado há 5 min</div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-bold text-sm">R$ 8.500,00</div>
+                                                    <div className="text-[10px] text-rose-500 font-medium">Fatura: R$ 1.840,00</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(dashTab === 'agenda' || dashTab === 'link' || dashTab === 'drive') && (
+                                <div className="max-w-4xl mx-auto text-center py-20 opacity-50">
+                                    <div className="text-5xl mb-4">🚧</div>
+                                    <h2 className="text-2xl font-bold text-slate-800">Seção em construção</h2>
+                                    <p className="text-sm text-slate-500 mt-2">Navegue pelas abas "Finanças & Bancos" ou "Nuvem & Instalar" para testar.</p>
+                                </div>
+                            )}
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
